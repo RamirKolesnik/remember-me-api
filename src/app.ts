@@ -7,6 +7,7 @@ import type { CaptchaVerifier } from './adapters/captcha.ts'
 import type { PaymentProvider } from './adapters/payments.ts'
 import type { Moderator } from './adapters/moderation.ts'
 import { sandboxRoutes } from './routes/sandbox.ts'
+import type { Stories } from './stories.ts'
 import { parsePhotoDataUrl } from './domain/photo.ts'
 import {
   containsLink, isHeart, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfFrame,
@@ -19,10 +20,12 @@ export interface Deps {
   captcha: CaptchaVerifier
   payments: PaymentProvider
   moderator: Moderator
+  stories: Stories
 }
 
 interface FrameRow {
   id: string
+  number: number | null
   x: number
   y: number
   size: number
@@ -33,16 +36,16 @@ interface FrameRow {
   paid_at: Date | null
 }
 
-const FRAME_COLUMNS = 'id, x, y, size, zone, name, note, photo_key, paid_at'
+const FRAME_COLUMNS = 'id, number, x, y, size, zone, name, note, photo_key, paid_at'
 const MAX_VIEW_CELLS = 250_000 // a 500x500 window at most per request
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
-  const { config, db, captcha, payments, moderator } = deps
+  const { config, db, captcha, payments, moderator, stories } = deps
   const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 64 * 1024 })
   await app.register(cors, { origin: config.corsOrigins })
 
   const toFrame = (r: FrameRow) => ({
-    id: Number(r.id), x: r.x, y: r.y, size: r.size, zone: r.zone,
+    id: Number(r.id), number: r.number, x: r.x, y: r.y, size: r.size, zone: r.zone,
     name: r.name, note: r.note,
     photoUrl: r.photo_key ? `${config.publicUrl}/photos/${r.photo_key}` : null,
     placedAt: r.paid_at,
@@ -101,7 +104,26 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       `select ${FRAME_COLUMNS} from frames where id = $1 and status = 'active'`, [req.params.id],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'not_found' })
-    return toFrame(rows[0])
+    return { ...toFrame(rows[0]), storyUrl: `${config.publicUrl}/frames/${rows[0].id}/story.jpg` }
+  })
+
+  // The 9:16 story card. Frames never change, so the picture can be cached for good.
+  app.get<{ Params: { id: number } }>('/frames/:id/story.jpg', { schema: { params: idParams } }, async (req, reply) => {
+    let story
+    try {
+      story = await stories.get(req.params.id)
+    } catch (err) {
+      if ((err as Error).message === 'story_busy') {
+        return reply.code(503).header('retry-after', '2').send({ error: 'busy' })
+      }
+      throw err
+    }
+    if (!story) return reply.code(404).send({ error: 'not_found' })
+    // Short public cache: an admin may still hide the frame.
+    reply.header('cache-control', 'public, max-age=3600')
+    reply.header('x-content-type-options', 'nosniff')
+    reply.header('content-disposition', `inline; filename="remember-me-${req.params.id}.jpg"`)
+    return reply.type(story.mime).send(story.data)
   })
 
   const sizeSchema = { type: 'integer', enum: [1, 2, 3] }
@@ -235,13 +257,15 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       if (!rows[0]?.ok) {
         // Paid after the hold was released: needs a refund. Logged for now.
         req.log.error({ event }, 'payment for a released hold')
+      } else {
+        stories.kick()
       }
       return { ok: true }
     })
   })
 
   if (payments.name === 'sandbox') {
-    await app.register(sandboxRoutes, { db, frontendUrl: config.frontendUrl })
+    await app.register(sandboxRoutes, { db, frontendUrl: config.frontendUrl, onActivated: () => stories.kick() })
   }
 
   app.post<{ Params: { id: number }; Body: { reason?: string } }>('/frames/:id/reports', {

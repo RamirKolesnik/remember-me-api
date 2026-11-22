@@ -23,6 +23,8 @@ export interface Config {
   frontendUrl: string
   /** Fill an empty wall with demo frames on start (dev environments only). */
   seedDemo: boolean
+  /** Site name printed on story cards. Empty: taken from frontendUrl. */
+  storySiteLabel: string
 }
 
 const trimSlash = (s: string) => s.replace(/\/+$/, '')
@@ -42,5 +44,6 @@ export function loadConfig(): Config {
     publicUrl: trimSlash(process.env.API_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`),
     frontendUrl: trimSlash(process.env.FRONTEND_URL || 'http://localhost:3000'),
     seedDemo: process.env.SEED_DEMO === '1',
+    storySiteLabel: process.env.STORY_SITE_LABEL ?? '',
   }
 }
