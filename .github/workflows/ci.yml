@@ -76,6 +76,12 @@ jobs:
           loc=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "localhost:8081/sandbox/checkout/$id/pay" -H 'content-type: application/x-www-form-urlencoded')
           test "$loc" = "https://example.test/site/immortalize/done?id=$id&status=paid"
           curl -sf "localhost:8081/frames/$id" | grep -q '"name":"Ci Buyer"'
+          # The paid frame has a number and a 9:16 story card
+          curl -sf "localhost:8081/frames/$id" | grep -q '"number":[0-9]'
+          curl -sf "localhost:8081/frames/$id" | grep -q "\"storyUrl\":\"http://localhost:8081/frames/$id/story.jpg\""
+          curl -sf "localhost:8081/frames/$id/story.jpg" -o story.jpg
+          test "$(head -c 3 story.jpg | od -An -tx1 | tr -d ' ')" = "ffd8ff"
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8081/frames/999999/story.jpg)" = "404"
           after=$(curl -sf localhost:8081/wall/stats | node -pe 'JSON.parse(require("fs").readFileSync(0)).frames')
           test "$after" -eq $((before + 1))
           # Cancel frees the spot

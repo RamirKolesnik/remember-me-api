@@ -32,7 +32,7 @@ form{margin:0}button{width:100%;min-height:52px;border-radius:10px;font:inherit;
 </style></head><body><main>${body}</main></body></html>`
 }
 
-export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; frontendUrl: string }) {
+export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; frontendUrl: string; onActivated?: (id: number) => void }) {
   const { db, frontendUrl } = opts
   // The checkout page posts plain HTML forms with no fields.
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, _body, done) => done(null, {}))
@@ -68,6 +68,7 @@ export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; f
     const id = req.params.id
     const { rows } = await db.query<{ ok: boolean }>('select activate_frame($1, $2) as ok', [id, `sandbox_${id}_${Date.now()}`])
     const status = rows[0]?.ok ? 'paid' : 'expired'
+    if (rows[0]?.ok) opts.onActivated?.(id)
     return reply.redirect(`${frontendUrl}/immortalize/done?id=${id}&status=${status}`, 303)
   })
 

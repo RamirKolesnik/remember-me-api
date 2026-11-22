@@ -96,3 +96,39 @@ test('a late payment for an expired hold is not activated', { skip }, () => {
   sql('select expire_reservations()')
   assert.equal(sql(`select activate_frame(${id}, 'pay_late')`), 'f')
 })
+
+test('frames get numbers in the order they go live', { skip }, () => {
+  const a = sql(reserve(600, 600, 1, 'n1'))
+  const b = sql(reserve(602, 600, 1, 'n2'))
+  assert.equal(sql(`select number from frames where id = ${a}`), '', 'a hold has no number')
+  sql(`select activate_frame(${b}, 'pay_n2')`)
+  sql(`select activate_frame(${a}, 'pay_n1')`)
+  const nb = Number(sql(`select number from frames where id = ${b}`))
+  const na = Number(sql(`select number from frames where id = ${a}`))
+  assert.ok(nb > 0)
+  assert.equal(na, nb + 1)
+  // Hiding and showing a frame keeps its number.
+  sql(`update frames set status = 'hidden' where id = ${a}`)
+  sql(`update frames set status = 'active' where id = ${a}`)
+  assert.equal(Number(sql(`select number from frames where id = ${a}`)), na)
+})
+
+// psql prints the command tag after the returned row: keep the first line only.
+const insertActive = (x: number, y: number, name: string) => sql(
+  `insert into frames (x, y, size, zone, price_usd, name, status, paid_at)
+   values (${x}, ${y}, 1, 3, 6, '${name}', 'active', now()) returning id`,
+).split('\n')[0]!
+
+test('frames inserted as active (seed) get numbers too', { skip }, () => {
+  const id = insertActive(700, 700, 'Seed')
+  assert.match(sql(`select number from frames where id = ${id}`), /^\d+$/)
+  assert.equal(sql(`select count(*) from frames where status = 'active' and number is null`), '0')
+  assert.equal(sql(`select count(*) - count(distinct number) from frames where number is not null`), '0')
+})
+
+test('a story card goes away with its frame', { skip }, () => {
+  const id = insertActive(710, 710, 'Gone')
+  sql(`insert into frame_stories (frame_id, mime, data) values (${id}, 'image/jpeg', '\\xffd8ff')`)
+  sql(`delete from frames where id = ${id}`)
+  assert.equal(sql(`select count(*) from frame_stories where frame_id = ${id}`), '0')
+})
