@@ -96,3 +96,23 @@ jobs:
 
       - name: Docker image builds
         run: docker build -t remember-me-api .
+
+  # Every green push to main redeploys the test API on Render.
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: render-deploy
+      cancel-in-progress: true
+    steps:
+      - name: Trigger the Render deploy hook
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::RENDER_DEPLOY_HOOK_URL is not set, so Render was not redeployed. Add it in Settings → Secrets and variables → Actions."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" -o /dev/null
+          echo "Render deploy started"

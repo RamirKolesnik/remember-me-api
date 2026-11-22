@@ -43,3 +43,5 @@ TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres npm test
 ```
 
 CI (`.github/workflows/ci.yml`) typechecks, runs the tests against Postgres, boots the server and builds the Docker image.
+
+After a green push to `main`, CI redeploys the test API on Render through a deploy hook. Put the hook URL (Render → the service → Settings → Deploy Hook) in the repository secret `RENDER_DEPLOY_HOOK_URL`; without it the deploy step only warns.
