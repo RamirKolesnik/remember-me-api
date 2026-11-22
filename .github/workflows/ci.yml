@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Boot smoke test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          PORT: "8080"
+        run: |
+          node src/server.ts &
+          for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
+          curl -sf localhost:8080/health
+          curl -sf "localhost:8080/price?x=500&y=500&size=1" | grep -q '"priceUsd":10000'
+          curl -sf "localhost:8080/wall/stats" | grep -q '"cellsLeft":1000000'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"size":1,"name":"Ci"}')" = "503"
+      - name: Docker image builds
+        run: docker build -t remember-me-api .
