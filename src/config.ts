@@ -15,13 +15,22 @@ export interface Config {
   reservationMinutes: number
   /** Empty: captcha checks are skipped (local development only). */
   captchaSecret: string
-  /** Empty: payments are not configured yet and checkout is refused. */
+  /** Empty: payments are not configured and checkout is refused. "sandbox": fake checkout for testing. */
   paymentProvider: string
+  /** Where this API is reachable from browsers, without a trailing slash. */
+  publicUrl: string
+  /** Where the website lives, without a trailing slash: checkout returns there. */
+  frontendUrl: string
+  /** Fill an empty wall with demo frames on start (dev environments only). */
+  seedDemo: boolean
 }
 
+const trimSlash = (s: string) => s.replace(/\/+$/, '')
+
 export function loadConfig(): Config {
+  const port = int('PORT', 8080)
   return {
-    port: int('PORT', 8080),
+    port,
     host: process.env.HOST ?? '0.0.0.0',
     databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/remember_me',
     corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000,https://ramirkolesnik.github.io')
@@ -29,5 +38,9 @@ export function loadConfig(): Config {
     reservationMinutes: int('RESERVATION_MINUTES', 15),
     captchaSecret: process.env.CAPTCHA_SECRET ?? '',
     paymentProvider: process.env.PAYMENT_PROVIDER ?? '',
+    // Render sets RENDER_EXTERNAL_URL for every web service.
+    publicUrl: trimSlash(process.env.API_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`),
+    frontendUrl: trimSlash(process.env.FRONTEND_URL || 'http://localhost:3000'),
+    seedDemo: process.env.SEED_DEMO === '1',
   }
 }

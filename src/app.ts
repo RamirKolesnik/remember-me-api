@@ -1,9 +1,13 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
+import { randomBytes } from 'node:crypto'
 import type pg from 'pg'
 import type { Config } from './config.ts'
 import type { CaptchaVerifier } from './adapters/captcha.ts'
 import type { PaymentProvider } from './adapters/payments.ts'
+import type { Moderator } from './adapters/moderation.ts'
+import { sandboxRoutes } from './routes/sandbox.ts'
+import { parsePhotoDataUrl } from './domain/photo.ts'
 import {
   containsLink, isHeart, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfFrame,
   type FrameSize,
@@ -14,6 +18,7 @@ export interface Deps {
   db: pg.Pool
   captcha: CaptchaVerifier
   payments: PaymentProvider
+  moderator: Moderator
 }
 
 interface FrameRow {
@@ -28,21 +33,24 @@ interface FrameRow {
   paid_at: Date | null
 }
 
-const toFrame = (r: FrameRow) => ({
-  id: Number(r.id), x: r.x, y: r.y, size: r.size, zone: r.zone,
-  name: r.name, note: r.note, photoKey: r.photo_key, placedAt: r.paid_at,
-})
-
+const FRAME_COLUMNS = 'id, x, y, size, zone, name, note, photo_key, paid_at'
 const MAX_VIEW_CELLS = 250_000 // a 500x500 window at most per request
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
-  const { config, db, captcha, payments } = deps
+  const { config, db, captcha, payments, moderator } = deps
   const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 64 * 1024 })
   await app.register(cors, { origin: config.corsOrigins })
 
+  const toFrame = (r: FrameRow) => ({
+    id: Number(r.id), x: r.x, y: r.y, size: r.size, zone: r.zone,
+    name: r.name, note: r.note,
+    photoUrl: r.photo_key ? `${config.publicUrl}/photos/${r.photo_key}` : null,
+    placedAt: r.paid_at,
+  })
+
   app.get('/health', async () => {
     await db.query('select 1')
-    return { ok: true }
+    return { ok: true, payments: payments.name, moderation: moderator.name }
   })
 
   app.get('/wall/stats', async () => {
@@ -71,12 +79,29 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (x1 < x0 || y1 < y0) return reply.code(400).send({ error: 'bad_window' })
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_VIEW_CELLS) return reply.code(400).send({ error: 'window_too_large' })
     const { rows } = await db.query<FrameRow>(
-      `select id, x, y, size, zone, name, note, photo_key, paid_at from frames
+      `select ${FRAME_COLUMNS} from frames
        where status = 'active' and x <= $3 and x + size - 1 >= $1 and y <= $4 and y + size - 1 >= $2`,
       [x0, y0, x1, y1],
     )
-    reply.header('cache-control', 'public, max-age=15')
     return { frames: rows.map(toFrame) }
+  })
+
+  /** Cells that are on hold right now, so the spot picker can show them as taken. */
+  app.get('/wall/holds', async () => {
+    const { rows } = await db.query<{ x: number; y: number; size: number }>(
+      `select x, y, size from frames where status = 'reserved'`,
+    )
+    return { holds: rows }
+  })
+
+  const idParams = { type: 'object', properties: { id: { type: 'integer', minimum: 1 } } }
+
+  app.get<{ Params: { id: number } }>('/frames/:id', { schema: { params: idParams } }, async (req, reply) => {
+    const { rows } = await db.query<FrameRow>(
+      `select ${FRAME_COLUMNS} from frames where id = $1 and status = 'active'`, [req.params.id],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found' })
+    return toFrame(rows[0])
   })
 
   const sizeSchema = { type: 'integer', enum: [1, 2, 3] }
@@ -97,6 +122,38 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return { priceUsd: priceOf(x, y, size), zone: isHeart(x, y, size) ? 0 : zoneOfFrame(x, y, size).id }
   })
 
+  // Photos: a base64 data URL in JSON, at most ~400 KB of image. The website
+  // resizes photos to 512 px before upload.
+  app.post<{ Body: { dataUrl: string } }>('/photos', {
+    bodyLimit: 600 * 1024,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['dataUrl'],
+        additionalProperties: false,
+        properties: { dataUrl: { type: 'string', maxLength: 560_000 } },
+      },
+    },
+  }, async (req, reply) => {
+    const parsed = parsePhotoDataUrl(req.body.dataUrl)
+    if (!parsed.ok) return reply.code(422).send({ error: parsed.error })
+    const verdict = await moderator.checkImage(parsed.mime, parsed.data)
+    if (!verdict.approved) return reply.code(422).send({ error: 'rejected_by_moderation', reason: verdict.reason })
+    const key = randomBytes(12).toString('base64url')
+    await db.query('insert into photos (id, mime, data) values ($1, $2, $3)', [key, parsed.mime, parsed.data])
+    return reply.code(201).send({ photoKey: key, url: `${config.publicUrl}/photos/${key}` })
+  })
+
+  app.get<{ Params: { key: string } }>('/photos/:key', {
+    schema: { params: { type: 'object', properties: { key: { type: 'string', pattern: '^[A-Za-z0-9_-]{8,40}$' } } } },
+  }, async (req, reply) => {
+    const { rows } = await db.query<{ mime: string; data: Buffer }>('select mime, data from photos where id = $1', [req.params.key])
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found' })
+    reply.header('cache-control', 'public, max-age=31536000, immutable')
+    reply.header('x-content-type-options', 'nosniff')
+    return reply.type(rows[0].mime).send(rows[0].data)
+  })
+
   interface ReserveBody {
     x: number; y: number; size: FrameSize
     name: string; note?: string; photoKey?: string; captchaToken?: string
@@ -112,7 +169,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
           x: cellSchema, y: cellSchema, size: sizeSchema,
           name: { type: 'string', minLength: 1, maxLength: NAME_MAX },
           note: { type: 'string', maxLength: NOTE_MAX },
-          photoKey: { type: 'string', maxLength: 200 },
+          photoKey: { type: 'string', pattern: '^[A-Za-z0-9_-]{8,40}$' },
           captchaToken: { type: 'string', maxLength: 4096 },
         },
       },
@@ -125,6 +182,10 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (placement) return reply.code(422).send({ error: placement })
     if (!name) return reply.code(422).send({ error: 'name_required' })
     if (containsLink(name) || containsLink(note)) return reply.code(422).send({ error: 'links_not_allowed' })
+    if (b.photoKey) {
+      const { rowCount } = await db.query('select 1 from photos where id = $1', [b.photoKey])
+      if (!rowCount) return reply.code(422).send({ error: 'unknown_photo' })
+    }
     if (!(await captcha.verify(b.captchaToken, req.ip))) return reply.code(403).send({ error: 'captcha_failed' })
     if (!payments.configured) return reply.code(503).send({ error: 'payments_unavailable' })
 
@@ -140,9 +201,18 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       )
       id = rows[0]!.id
     } catch (err) {
-      const msg = (err as { code?: string; message?: string })
-      if (msg.code === 'P0001' && msg.message === 'spot_taken') return reply.code(409).send({ error: 'spot_taken' })
-      if (msg.code === 'P0001' && msg.message === 'hold_exists') return reply.code(409).send({ error: 'hold_exists' })
+      const e = err as { code?: string; message?: string }
+      if (e.code === 'P0001' && e.message === 'spot_taken') return reply.code(409).send({ error: 'spot_taken' })
+      if (e.code === 'P0001' && e.message === 'hold_exists') {
+        // Point the buyer back to the hold they already have.
+        const { rows } = await db.query<{ id: string }>(
+          `select id from frames where holder = $1 and status = 'reserved'`, [req.ip],
+        )
+        // TODO: store each hold's checkout URL once a real provider is wired.
+        const holdId = rows[0]?.id
+        const checkoutUrl = holdId && payments.name === 'sandbox' ? `${config.publicUrl}/sandbox/checkout/${holdId}` : null
+        return reply.code(409).send({ error: 'hold_exists', holdId: holdId ? Number(holdId) : null, checkoutUrl })
+      }
       throw err
     }
 
@@ -170,9 +240,13 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     })
   })
 
+  if (payments.name === 'sandbox') {
+    await app.register(sandboxRoutes, { db, frontendUrl: config.frontendUrl })
+  }
+
   app.post<{ Params: { id: number }; Body: { reason?: string } }>('/frames/:id/reports', {
     schema: {
-      params: { type: 'object', properties: { id: { type: 'integer', minimum: 1 } } },
+      params: idParams,
       body: {
         type: 'object',
         additionalProperties: false,

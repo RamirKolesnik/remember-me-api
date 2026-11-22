@@ -3,17 +3,25 @@ import { loadConfig } from './config.ts'
 import { buildApp } from './app.ts'
 import { createCaptcha } from './adapters/captcha.ts'
 import { createPayments } from './adapters/payments.ts'
+import { createModerator } from './adapters/moderation.ts'
 import { migrate } from './db/migrate.ts'
+import { seedDemoIfEmpty } from './db/seed.ts'
 
 const config = loadConfig()
 await migrate(config.databaseUrl)
 
 const db = new pg.Pool({ connectionString: config.databaseUrl, max: 10 })
+if (config.seedDemo) {
+  const added = await seedDemoIfEmpty(db)
+  if (added) console.log(`Seeded ${added} demo frames`)
+}
+
 const app = await buildApp({
   config,
   db,
   captcha: createCaptcha(config.captchaSecret, console),
-  payments: createPayments(config.paymentProvider),
+  payments: createPayments(config.paymentProvider, config.publicUrl),
+  moderator: createModerator(),
 })
 
 // Release expired holds every minute.

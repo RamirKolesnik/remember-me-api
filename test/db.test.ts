@@ -83,6 +83,14 @@ test('expired holds free their cells', { skip }, () => {
   assert.match(sql(reserve(100, 100, 3, 'e')), /^\d+$/)
 })
 
+test('a released hold frees its cells at once', { skip }, () => {
+  const id = sql(reserve(300, 300, 2, 'g'))
+  assert.equal(sql(`select release_hold(${id})`), 't')
+  assert.equal(sql(`select count(*) from cells where frame_id = ${id}`), '0')
+  assert.equal(sql(`select release_hold(${id})`), 'f')
+  assert.match(sql(reserve(300, 300, 2, 'g')), /^\d+$/)
+})
+
 test('a late payment for an expired hold is not activated', { skip }, () => {
   const id = sql(reserve(200, 200, 1, 'f', -10))
   sql('select expire_reservations()')

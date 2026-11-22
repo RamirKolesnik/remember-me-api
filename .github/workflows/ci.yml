@@ -31,16 +31,62 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
-      - name: Boot smoke test
+
+      - name: Smoke test without payments
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
           PORT: "8080"
         run: |
-          node src/server.ts &
+          node src/server.ts > server.log 2>&1 &
+          echo $! > server.pid
           for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
-          curl -sf localhost:8080/health
           curl -sf "localhost:8080/price?x=500&y=500&size=1" | grep -q '"priceUsd":10000'
           curl -sf "localhost:8080/wall/stats" | grep -q '"cellsLeft":1000000'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"size":1,"name":"Ci"}')" = "503"
+          kill "$(cat server.pid)"
+
+      - name: Smoke test of a sandbox purchase
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/sandbox
+          PORT: "8081"
+          PAYMENT_PROVIDER: sandbox
+          SEED_DEMO: "1"
+          API_PUBLIC_URL: http://localhost:8081
+          FRONTEND_URL: https://example.test/site
+        run: |
+          set -e
+          psql postgres://postgres:postgres@localhost:5432/postgres -c 'create database sandbox'
+          node src/server.ts > sandbox.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8081/health && break; sleep 1; done
+          before=$(curl -sf localhost:8081/wall/stats | node -pe 'JSON.parse(require("fs").readFileSync(0)).frames')
+          test "$before" -gt 1000
+          # Upload a 1x1 PNG
+          png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+          key=$(curl -sf -X POST localhost:8081/photos -H 'content-type: application/json' -d "{\"dataUrl\":\"$png\"}" | node -pe 'JSON.parse(require("fs").readFileSync(0)).photoKey')
+          curl -sf "localhost:8081/photos/$key" -o /dev/null
+          res=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' \
+            -d "{\"x\":10,\"y\":10,\"size\":2,\"name\":\"Ci Buyer\",\"note\":\"hi @ci\",\"photoKey\":\"$key\"}")
+          echo "$res"
+          id=$(echo "$res" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+          echo "$res" | grep -q '"priceUsd":6'
+          # Same client, second hold: refused and pointed back to the first
+          curl -s -X POST localhost:8081/reservations -H 'content-type: application/json' \
+            -d '{"x":20,"y":20,"size":1,"name":"Again"}' | grep -q "sandbox/checkout/$id"
+          curl -sf "localhost:8081/sandbox/checkout/$id" | grep -q 'TEST PAYMENT'
+          loc=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "localhost:8081/sandbox/checkout/$id/pay" -H 'content-type: application/x-www-form-urlencoded')
+          test "$loc" = "https://example.test/site/immortalize/done?id=$id&status=paid"
+          curl -sf "localhost:8081/frames/$id" | grep -q '"name":"Ci Buyer"'
+          after=$(curl -sf localhost:8081/wall/stats | node -pe 'JSON.parse(require("fs").readFileSync(0)).frames')
+          test "$after" -eq $((before + 1))
+          # Cancel frees the spot
+          res2=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":30,"y":30,"size":1,"name":"Quitter"}')
+          id2=$(echo "$res2" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+          curl -s -o /dev/null -X POST "localhost:8081/sandbox/checkout/$id2/cancel" -H 'content-type: application/x-www-form-urlencoded'
+          curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":30,"y":30,"size":1,"name":"Next"}' | grep -q checkoutUrl
+
+      - name: Server logs
+        if: failure()
+        run: cat server.log sandbox.log 2>/dev/null || true
+
       - name: Docker image builds
         run: docker build -t remember-me-api .
