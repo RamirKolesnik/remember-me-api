@@ -40,7 +40,8 @@ jobs:
           node src/server.ts > server.log 2>&1 &
           echo $! > server.pid
           for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
-          curl -sf "localhost:8080/price?x=500&y=500&size=1" | grep -q '"priceUsd":10000'
+          curl -sf "localhost:8080/price?x=502&y=498&size=1" | grep -q '"priceUsd":15'
+          curl -sf "localhost:8080/price?x=500&y=500&size=1" | grep -q '"error":"heart_not_for_sale"'
           curl -sf "localhost:8080/wall/stats" | grep -q '"cellsLeft":1000000'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"size":1,"name":"Ci"}')" = "503"
           kill "$(cat server.pid)"

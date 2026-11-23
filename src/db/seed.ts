@@ -1,6 +1,6 @@
 // Demo frames for dev environments, so the wall isn't empty while testing.
 import type pg from 'pg'
-import { HEART, isHeart, placementError, priceOf, WALL_SIZE, zoneOfFrame, type FrameSize } from '../domain/wall.ts'
+import { placementError, priceOf, WALL_SIZE, zoneOfFrame, type FrameSize } from '../domain/wall.ts'
 
 export interface DemoFrame {
   x: number
@@ -20,7 +20,7 @@ const NOTES = [
   'Forever is a long time. Good.', 'Painter, runner, dad. @{h}',
 ]
 
-/** Deterministic: the same frames every time. The heart stays free. */
+/** Deterministic: the same frames every time. The heart stays free (placementError keeps frames off it). */
 export function demoFrames(count = 1500): DemoFrame[] {
   let seed = 20261123
   const rnd = () => {
@@ -28,7 +28,6 @@ export function demoFrames(count = 1500): DemoFrame[] {
     return seed / 2147483648
   }
   const taken = new Uint8Array(WALL_SIZE * WALL_SIZE)
-  taken[HEART.y * WALL_SIZE + HEART.x] = 1
   const fits = (x: number, y: number, n: FrameSize) => {
     if (placementError(x, y, n)) return false
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (taken[(y + j) * WALL_SIZE + x + i]) return false
@@ -40,15 +39,15 @@ export function demoFrames(count = 1500): DemoFrame[] {
     const r = rnd()
     const n: FrameSize = r < 0.6 ? 1 : r < 0.9 ? 2 : 3
     const spread = rnd() < 0.85 ? 34 : 160
-    const x = Math.round(HEART.x + gauss() * spread)
-    const y = Math.round(HEART.y + gauss() * spread)
+    const x = Math.round(WALL_SIZE / 2 + gauss() * spread)
+    const y = Math.round(WALL_SIZE / 2 + gauss() * spread)
     if (!fits(x, y, n)) continue
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) taken[(y + j) * WALL_SIZE + x + i] = 1
     const first = FIRST[Math.floor(rnd() * FIRST.length)]!
     const handle = `${first.toLowerCase()}.${Math.floor(rnd() * 90 + 10)}`
     out.push({
       x, y, size: n,
-      zone: isHeart(x, y, n) ? 0 : zoneOfFrame(x, y, n).id,
+      zone: zoneOfFrame(x, y, n).id,
       price: priceOf(x, y, n),
       name: `${first} ${LAST[Math.floor(rnd() * LAST.length)]!}`,
       note: NOTES[Math.floor(rnd() * NOTES.length)]!.replace('{h}', handle).replace('{n}', first),
