@@ -24,6 +24,19 @@ Backend of remember.me: frames on a 1000×1000 wall, holds while a buyer pays, p
 
 Not wired yet: photo upload and moderation, the captcha provider, the payment provider. Until a payment provider is configured, `POST /reservations` answers `503 payments_unavailable`.
 
+## The heart
+
+The heart is the 4×4 block at the center (cells 498–501). It is not sold on the site: `POST /reservations` refuses any spot that touches it (`heart_not_for_sale`), and the database enforces the same rule (`frames_off_heart` in `db/migrations/004_heart_4x4.sql`). The deal is closed in person, from $10,000.
+
+To put the owner on the wall, upload their photo with `POST /photos` (it returns a `photoKey`), then run in the database:
+
+```sql
+select place_heart('Owner name', 'Their note', '<photoKey>', 12000, 'deal-001');
+-- name, note, photo key (or null), price paid in USD, your reference for the deal
+```
+
+The frame goes live at once and gets its number and story card like any other. A second call raises `heart_sold`.
+
 ## Story cards
 
 Every frame that goes live gets a number (`I'm #4,812 on the wall. Forever.`), handed out by a trigger in `db/migrations/003_frame_numbers_and_stories.sql` in the order frames are activated.

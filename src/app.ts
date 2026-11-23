@@ -10,7 +10,7 @@ import { sandboxRoutes } from './routes/sandbox.ts'
 import type { Stories } from './stories.ts'
 import { parsePhotoDataUrl } from './domain/photo.ts'
 import {
-  containsLink, isHeart, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfFrame,
+  containsLink, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfFrame,
   type FrameSize,
 } from './domain/wall.ts'
 
@@ -141,7 +141,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     const { x, y, size } = req.query
     const error = placementError(x, y, size)
     if (error) return { error }
-    return { priceUsd: priceOf(x, y, size), zone: isHeart(x, y, size) ? 0 : zoneOfFrame(x, y, size).id }
+    return { priceUsd: priceOf(x, y, size), zone: zoneOfFrame(x, y, size).id }
   })
 
   // Photos: a base64 data URL in JSON, at most ~400 KB of image. The website
@@ -211,8 +211,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (!(await captcha.verify(b.captchaToken, req.ip))) return reply.code(403).send({ error: 'captcha_failed' })
     if (!payments.configured) return reply.code(503).send({ error: 'payments_unavailable' })
 
-    const heart = isHeart(b.x, b.y, b.size)
-    const zone = heart ? 0 : zoneOfFrame(b.x, b.y, b.size).id
+    // The heart is never sold here: placementError refuses any spot on it.
+    const zone = zoneOfFrame(b.x, b.y, b.size).id
     const price = priceOf(b.x, b.y, b.size)
 
     let id: string
@@ -241,7 +241,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     const expiresAt = new Date(Date.now() + config.reservationMinutes * 60_000)
     const checkout = await payments.createCheckout({
       frameId: id, priceUsd: price, expiresAt,
-      description: heart ? 'remember.me — the heart of the wall' : `remember.me — ${b.size}×${b.size} frame at (${b.x}, ${b.y})`,
+      description: `remember.me — ${b.size}×${b.size} frame at (${b.x}, ${b.y})`,
     })
     return reply.code(201).send({ id: Number(id), priceUsd: price, zone, expiresAt, checkoutUrl: checkout.url })
   })

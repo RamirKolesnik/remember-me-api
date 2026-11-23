@@ -14,7 +14,7 @@ test('caption carries the frame number', () => {
 
 test('meta line names the cell and zone', () => {
   assert.equal(storyMeta(base), 'Cell (512, 488) · Zone 1 · center · 2×2')
-  assert.equal(storyMeta({ x: 500, y: 500, size: 1, zone: 0 }), 'Cell (500, 500) · one of one')
+  assert.equal(storyMeta({ x: 498, y: 498, size: 4, zone: 0 }), 'The center of the wall · 4×4 · one of one')
 })
 
 test('initials', () => {
@@ -30,7 +30,7 @@ test('site label drops the scheme and trailing slash', () => {
 
 test('renders a 1080×1920 JPEG, with and without a photo', async () => {
   const photo = await sharp({ create: { width: 512, height: 512, channels: 3, background: '#7a9' } }).jpeg().toBuffer()
-  for (const f of [base, { ...base, photo }, { ...base, zone: 0, x: 500, y: 500, size: 1 }]) {
+  for (const f of [base, { ...base, photo }, { ...base, zone: 0, x: 498, y: 498, size: 4 }]) {
     const img = await renderStory(f)
     const meta = await sharp(img).metadata()
     assert.equal(meta.format, 'jpeg')
@@ -42,7 +42,7 @@ test('renders a 1080×1920 JPEG, with and without a photo', async () => {
 test('the heart has its own template', async () => {
   const mean = async (buf: Buffer) => (await sharp(buf).stats()).channels[1]!.mean
   const plain = await mean(await renderStory(base))
-  const heart = await mean(await renderStory({ ...base, zone: 0, x: 500, y: 500, size: 1 }))
+  const heart = await mean(await renderStory({ ...base, zone: 0, x: 498, y: 498, size: 4 }))
   assert.ok(plain > 180, `light card, mean green ${plain}`)
   assert.ok(heart < 80, `dark card, mean green ${heart}`)
 })

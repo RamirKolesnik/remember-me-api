@@ -49,7 +49,7 @@ export function storyCaption(f: Pick<StoryFrame, 'number' | 'zone'>): string {
 }
 
 export function storyMeta(f: Pick<StoryFrame, 'x' | 'y' | 'size' | 'zone'>): string {
-  if (f.zone === 0) return `Cell (${f.x}, ${f.y}) · one of one`
+  if (f.zone === 0) return `The center of the wall · ${f.size}×${f.size} · one of one`
   return `Cell (${f.x}, ${f.y}) · ${ZONE_LABEL[f.zone] ?? `Zone ${f.zone}`} · ${f.size}×${f.size}`
 }
 
