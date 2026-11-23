@@ -82,6 +82,9 @@ jobs:
           num=$(curl -sf "localhost:8081/frames/$id" | sed -E 's/.*"number":([0-9]+).*/\1/')
           curl -sf "localhost:8081/frames/by-number/$num" | grep -q "\"id\":$id,"
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8081/frames/by-number/999999)" = "404"
+          # The newest frame leads the "Just immortalized" feed
+          curl -sf "localhost:8081/wall/recent?limit=3" | node -e 'const b=JSON.parse(require("fs").readFileSync(0));if(b.frames.length!==3||b.frames[0].id!=='"$id"')process.exit(1)'
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'localhost:8081/wall/recent?limit=500')" = "400"
           curl -sf "localhost:8081/frames/$id" | grep -q "\"storyUrl\":\"http://localhost:8081/frames/$id/story.jpg\""
           curl -sf "localhost:8081/frames/$id/story.jpg" -o story.jpg
           test "$(head -c 3 story.jpg | od -An -tx1 | tr -d ' ')" = "ffd8ff"

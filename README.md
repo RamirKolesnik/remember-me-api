@@ -15,6 +15,7 @@ Backend of remember.me: frames on a 1000×1000 wall, holds while a buyer pays, p
 | GET | `/health` | liveness + DB |
 | GET | `/wall/stats` | frames and cells left |
 | GET | `/wall/frames?x0&y0&x1&y1` | active frames in a window (≤ 500×500) |
+| GET | `/wall/recent?limit` | the newest active frames, newest first (default 12, up to 30); for the "Just immortalized" feed, shared for 3 s |
 | GET | `/price?x&y&size` | price and zone, or a placement error |
 | POST | `/reservations` | hold a spot for 15 min and get a checkout link |
 | POST | `/webhooks/payments` | payment provider callback: hold → frame |
