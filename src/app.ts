@@ -107,6 +107,17 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return { ...toFrame(rows[0]), storyUrl: `${config.publicUrl}/frames/${rows[0].id}/story.jpg` }
   })
 
+  // Frames as people know them: by the number on their story card ("#4,812").
+  app.get<{ Params: { number: number } }>('/frames/by-number/:number', {
+    schema: { params: { type: 'object', properties: { number: { type: 'integer', minimum: 1 } } } },
+  }, async (req, reply) => {
+    const { rows } = await db.query<FrameRow>(
+      `select ${FRAME_COLUMNS} from frames where number = $1 and status = 'active'`, [req.params.number],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'not_found' })
+    return { ...toFrame(rows[0]), storyUrl: `${config.publicUrl}/frames/${rows[0].id}/story.jpg` }
+  })
+
   // The 9:16 story card. Frames never change, so the picture can be cached for good.
   app.get<{ Params: { id: number } }>('/frames/:id/story.jpg', { schema: { params: idParams } }, async (req, reply) => {
     let story

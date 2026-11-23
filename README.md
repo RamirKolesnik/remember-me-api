@@ -19,6 +19,7 @@ Backend of remember.me: frames on a 1000×1000 wall, holds while a buyer pays, p
 | POST | `/reservations` | hold a spot for 15 min and get a checkout link |
 | POST | `/webhooks/payments` | payment provider callback: hold → frame |
 | GET | `/frames/:id` | one active frame, with its `number` and `storyUrl` |
+| GET | `/frames/by-number/:number` | the same, found by the number on its story card (`#4812` → `4812`) |
 | GET | `/frames/:id/story.jpg` | the frame's 9:16 story card (1080×1920 JPEG) |
 | POST | `/frames/:id/reports` | report a frame |
 
