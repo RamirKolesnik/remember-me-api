@@ -38,6 +38,8 @@ interface FrameRow {
 
 const FRAME_COLUMNS = 'id, number, x, y, size, zone, name, note, photo_key, paid_at'
 const MAX_VIEW_CELLS = 250_000 // a 500x500 window at most per request
+const RECENT_MAX = 30
+const RECENT_TTL_MS = 3_000
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   const { config, db, captcha, payments, moderator, stories } = deps
@@ -87,6 +89,36 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       [x0, y0, x1, y1],
     )
     return { frames: rows.map(toFrame) }
+  })
+
+  // "Just immortalized": the newest live frames, newest first. Every open wall
+  // polls this, so one answer is shared for a few seconds instead of hitting
+  // the database per visitor. Hidden frames are not active, so they drop out.
+  const recentCache = new Map<number, { at: number; body: Promise<{ frames: ReturnType<typeof toFrame>[] }> }>()
+  app.get<{ Querystring: { limit: number } }>('/wall/recent', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: { limit: { type: 'integer', minimum: 1, maximum: RECENT_MAX, default: 12 } },
+      },
+    },
+  }, async (req, reply) => {
+    const { limit } = req.query
+    const now = Date.now()
+    let hit = recentCache.get(limit)
+    if (!hit || now - hit.at > RECENT_TTL_MS) {
+      const body = db.query<FrameRow>(
+        `select ${FRAME_COLUMNS} from frames
+         where status = 'active' and number is not null
+         order by number desc limit $1`,
+        [limit],
+      ).then(({ rows }) => ({ frames: rows.map(toFrame) }))
+      hit = { at: now, body }
+      recentCache.set(limit, hit)
+      body.catch(() => recentCache.delete(limit))
+    }
+    reply.header('cache-control', 'public, max-age=5')
+    return hit.body
   })
 
   /** Cells that are on hold right now, so the spot picker can show them as taken. */
