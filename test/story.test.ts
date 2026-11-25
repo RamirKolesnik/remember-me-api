@@ -14,7 +14,8 @@ test('caption carries the frame number', () => {
 
 test('meta line names the cell and zone', () => {
   assert.equal(storyMeta(base), 'Cell (512, 488) · Epic zone')
-  assert.equal(storyMeta({ x: 498, y: 498, size: 4, zone: 0 }), 'The center of the wall · 4×4 · one of one')
+  assert.equal(storyMeta({ x: 498, y: 498, size: 4, zone: 0, number: 1 }), 'The center of the wall · 4×4 · one of one')
+  assert.equal(storyMeta({ ...base, number: 42 }), 'Founder · Cell (512, 488) · Epic zone')
 })
 
 test('initials', () => {

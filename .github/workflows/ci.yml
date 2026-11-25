@@ -40,8 +40,11 @@ jobs:
           node src/server.ts > server.log 2>&1 &
           echo $! > server.pid
           for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
-          curl -sf "localhost:8080/price?x=502&y=498" | grep -q '"priceCents":9900'
-          curl -sf "localhost:8080/price?x=10&y=10&size=1" | grep -q '"priceUsd":4.99'
+          curl -sf "localhost:8080/price?x=502&y=498" | grep -q '"priceCents":2900'
+          curl -sf "localhost:8080/price?x=400&y=400&size=1" | grep -q '"priceUsd":2.99'
+          # Only the center (wave 1) is open at launch
+          curl -sf "localhost:8080/price?x=10&y=10" | grep -q '"error":"zone_closed"'
+          curl -sf "localhost:8080/wall/pricing" | grep -q '"foundersLeft":1000'
           curl -sf "localhost:8080/price?x=500&y=500" | grep -q '"error":"heart_not_for_sale"'
           curl -sf "localhost:8080/wall/stats" | grep -q '"cellsLeft":1000000'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"size":1,"name":"Ci"}')" = "503"
@@ -66,15 +69,17 @@ jobs:
           key=$(curl -sf -X POST localhost:8081/photos -H 'content-type: application/json' -d "{\"dataUrl\":\"$png\"}" | node -pe 'JSON.parse(require("fs").readFileSync(0)).photoKey')
           curl -sf "localhost:8081/photos/$key" -o /dev/null
           res=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' \
-            -d "{\"x\":10,\"y\":10,\"name\":\"Ci Buyer\",\"note\":\"hi @ci\",\"photoKey\":\"$key\"}")
+            -d "{\"x\":400,\"y\":400,\"name\":\"Ci Buyer\",\"note\":\"hi @ci\",\"photoKey\":\"$key\"}")
           echo "$res"
           id=$(echo "$res" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
-          echo "$res" | grep -q '"priceCents":499'
+          echo "$res" | grep -q '"priceCents":299'
+          # Outer rings are not on sale yet
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"name":"Early"}')" = "422"
           # Only 1x1 frames are sold
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":40,"y":40,"size":2,"name":"Big"}')" = "400"
           # Same client, second hold: refused and pointed back to the first
           curl -s -X POST localhost:8081/reservations -H 'content-type: application/json' \
-            -d '{"x":20,"y":20,"size":1,"name":"Again"}' | grep -q "sandbox/checkout/$id"
+            -d '{"x":410,"y":410,"size":1,"name":"Again"}' | grep -q "sandbox/checkout/$id"
           curl -sf "localhost:8081/sandbox/checkout/$id" | grep -q 'TEST PAYMENT'
           loc=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "localhost:8081/sandbox/checkout/$id/pay" -H 'content-type: application/x-www-form-urlencoded')
           test "$loc" = "https://example.test/site/immortalize/done?id=$id&status=paid"
@@ -91,13 +96,14 @@ jobs:
           curl -sf "localhost:8081/frames/$id/story.jpg" -o story.jpg
           test "$(head -c 3 story.jpg | od -An -tx1 | tr -d ' ')" = "ffd8ff"
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8081/frames/999999/story.jpg)" = "404"
+          curl -sf localhost:8081/wall/pricing | grep -q '"foundersLeft":999'
           after=$(curl -sf localhost:8081/wall/stats | node -pe 'JSON.parse(require("fs").readFileSync(0)).frames')
           test "$after" -eq $((before + 1))
           # Cancel frees the spot
-          res2=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":30,"y":30,"size":1,"name":"Quitter"}')
+          res2=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":420,"y":420,"size":1,"name":"Quitter"}')
           id2=$(echo "$res2" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
           curl -s -o /dev/null -X POST "localhost:8081/sandbox/checkout/$id2/cancel" -H 'content-type: application/x-www-form-urlencoded'
-          curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":30,"y":30,"size":1,"name":"Next"}' | grep -q checkoutUrl
+          curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":420,"y":420,"size":1,"name":"Next"}' | grep -q checkoutUrl
 
       - name: Server logs
         if: failure()

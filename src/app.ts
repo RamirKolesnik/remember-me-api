@@ -10,7 +10,8 @@ import { sandboxRoutes } from './routes/sandbox.ts'
 import type { Stories } from './stories.ts'
 import { parsePhotoDataUrl } from './domain/photo.ts'
 import {
-  containsLink, FRAME_SIZE, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfCell,
+  containsLink, FRAME_SIZE, NAME_MAX, NOTE_MAX, NOTHING_SOLD, placementError, pricing, WALL_SIZE, zoneOfCell,
+  zonePrice, type Sold, type ZoneId,
 } from './domain/wall.ts'
 
 export interface Deps {
@@ -39,6 +40,7 @@ const FRAME_COLUMNS = 'id, number, x, y, size, zone, name, note, photo_key, paid
 const MAX_VIEW_CELLS = 250_000 // a 500x500 window at most per request
 const RECENT_MAX = 30
 const RECENT_TTL_MS = 3_000
+const PRICING_TTL_MS = 3_000
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   const { config, db, captcha, payments, moderator, stories } = deps
@@ -51,6 +53,31 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     photoUrl: r.photo_key ? `${config.publicUrl}/photos/${r.photo_key}` : null,
     placedAt: r.paid_at,
   })
+
+  /**
+   * Frames sold per zone. Frames are forever (hidden ones keep their cells),
+   * so these only grow, and so do prices and open waves.
+   */
+  async function soldNow(): Promise<Sold> {
+    const { rows } = await db.query<{ zone: number; n: string }>(
+      `select zone, count(*) as n from frames
+       where status in ('active', 'hidden') and zone between 1 and 4 group by zone`,
+    )
+    const sold: Record<ZoneId, number> = { ...NOTHING_SOLD }
+    for (const r of rows) sold[r.zone as ZoneId] = Number(r.n)
+    return sold
+  }
+  // Every open wall polls prices: share one answer for a few seconds.
+  let soldCache: { at: number; sold: Promise<Sold> } | null = null
+  function soldShared(): Promise<Sold> {
+    const now = Date.now()
+    if (!soldCache || now - soldCache.at > PRICING_TTL_MS) {
+      const sold = soldNow()
+      soldCache = { at: now, sold }
+      sold.catch(() => { soldCache = null })
+    }
+    return soldCache.sold
+  }
 
   app.get('/health', async () => {
     await db.query('select 1')
@@ -120,6 +147,24 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return hit.body
   })
 
+  // Where prices and waves stand. The site works the rest out with the same
+  // rules (wall.ts): current price, next price, frames left at this price,
+  // which waves are open and how close the next one is.
+  app.get('/wall/pricing', async (_req, reply) => {
+    const sold = await soldShared()
+    const p = pricing(sold)
+    reply.header('cache-control', 'public, max-age=5')
+    return {
+      sold,
+      zones: p.zones.map((z) => ({
+        id: z.zone.id, open: z.open, sold: z.sold, capacity: z.zone.capacity, step: z.step,
+        priceCents: z.priceCents, nextPriceCents: z.nextPriceCents, leftAtPrice: z.leftAtPrice,
+      })),
+      waves: p.waves,
+      foundersLeft: p.foundersLeft,
+    }
+  })
+
   /** Cells that are on hold right now, so the spot picker can show them as taken. */
   app.get('/wall/holds', async () => {
     const { rows } = await db.query<{ x: number; y: number; size: number }>(
@@ -184,8 +229,12 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     const { x, y } = req.query
     const error = placementError(x, y)
     if (error) return { error }
-    const cents = priceOf(x, y)
-    return { priceCents: cents, priceUsd: cents / 100, zone: zoneOfCell(x, y).id }
+    const z = zonePrice(pricing(await soldShared()), zoneOfCell(x, y).id)
+    if (!z.open) return { error: 'zone_closed', wave: z.zone.wave }
+    return {
+      priceCents: z.priceCents, priceUsd: z.priceCents / 100, zone: z.zone.id,
+      nextPriceCents: z.nextPriceCents, leftAtPrice: z.leftAtPrice,
+    }
   })
 
   // Photos: a base64 data URL in JSON, at most ~400 KB of image. The website
@@ -256,8 +305,12 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (!payments.configured) return reply.code(503).send({ error: 'payments_unavailable' })
 
     // The heart is never sold here: placementError refuses any spot on it.
-    const zone = zoneOfCell(b.x, b.y).id
-    const price = priceOf(b.x, b.y) // cents
+    // The price is the zone's current step, from a fresh count. Two buyers on
+    // the very edge of a step may both get the lower price; that is fine.
+    const z = zonePrice(pricing(await soldNow()), zoneOfCell(b.x, b.y).id)
+    if (!z.open) return reply.code(422).send({ error: 'zone_closed', wave: z.zone.wave })
+    const zone = z.zone.id
+    const price = z.priceCents
 
     let id: string
     try {

@@ -3,6 +3,7 @@
 // the card looks the same on every server, whatever fonts it has installed.
 import sharp from 'sharp'
 import { join } from 'node:path'
+import { isFounder } from './wall.ts'
 
 export const STORY_W = 1080
 export const STORY_H = 1920
@@ -48,9 +49,10 @@ export function storyCaption(f: Pick<StoryFrame, 'number' | 'zone'>): string {
   return "I'm on the wall.\nForever."
 }
 
-export function storyMeta(f: Pick<StoryFrame, 'x' | 'y' | 'size' | 'zone'>): string {
+export function storyMeta(f: Pick<StoryFrame, 'x' | 'y' | 'size' | 'zone' | 'number'>): string {
   if (f.zone === 0) return `The center of the wall · ${f.size}×${f.size} · one of one`
-  return `Cell (${f.x}, ${f.y}) · ${ZONE_LABEL[f.zone] ?? `Zone ${f.zone}`}`
+  const where = `Cell (${f.x}, ${f.y}) · ${ZONE_LABEL[f.zone] ?? `Zone ${f.zone}`}`
+  return isFounder(f.number) ? `Founder · ${where}` : where
 }
 
 interface TextOpts {
