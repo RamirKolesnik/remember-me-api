@@ -29,7 +29,7 @@ Not wired yet: photo upload and moderation, the captcha provider, the payment pr
 
 ## The heart
 
-The heart is the 4×4 block at the center (cells 498–501). It is not sold on the site: `POST /reservations` refuses any spot that touches it (`heart_not_for_sale`), and the database enforces the same rule (`frames_off_heart` in `db/migrations/004_heart_4x4.sql`). The deal is closed in person, from $10,000.
+The wall is 1002×1002 cells. The heart is the 12×12 block at the center (cells 495–506). It is not sold on the site: `POST /reservations` refuses any spot that touches it (`heart_not_for_sale`), and the database enforces the same rule (`frames_off_heart` in `db/migrations/007_heart_12x12.sql`). The deal is closed in person, from $10,000.
 
 To put the owner on the wall, upload their photo with `POST /photos` (it returns a `photoKey`), then run in the database:
 
@@ -44,7 +44,7 @@ The frame goes live at once and gets its number and story card like any other. A
 
 Every frame that goes live gets a number (`I'm #4,812 on the wall. Forever.`), handed out by a trigger in `db/migrations/003_frame_numbers_and_stories.sql` in the order frames are activated.
 
-`src/domain/story.ts` draws the 9:16 card with sharp: the photo (or initials), name, caption, cell and zone. The heart has its own dark template. Text is set with the bundled Inter font (`assets/fonts`, SIL OFL), so cards look the same on every server.
+`src/domain/story.ts` draws the 9:16 card with sharp: the photo (or initials), name, caption, cell and zone. Both templates are the dark Living Wall; the heart's card glows red. Text is set with the bundled Inter font (`assets/fonts`, SIL OFL), so cards look the same on every server.
 
 After a payment the server renders the card in the background and keeps it in `frame_stories`. A card that isn't ready yet is rendered when someone asks for it. The queue is the database (paid frames with no card), so a restart loses nothing; it moves to BullMQ with Redis, and the pictures to object storage, before launch. `STORY_SITE_LABEL` sets the site name printed on the card (default: `FRONTEND_URL` without the scheme).
 

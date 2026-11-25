@@ -98,10 +98,10 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
         type: 'object',
         required: ['x0', 'y0', 'x1', 'y1'],
         properties: {
-          x0: { type: 'integer', minimum: 0, maximum: 999 },
-          y0: { type: 'integer', minimum: 0, maximum: 999 },
-          x1: { type: 'integer', minimum: 0, maximum: 999 },
-          y1: { type: 'integer', minimum: 0, maximum: 999 },
+          x0: { type: 'integer', minimum: 0, maximum: WALL_SIZE - 1 },
+          y0: { type: 'integer', minimum: 0, maximum: WALL_SIZE - 1 },
+          x1: { type: 'integer', minimum: 0, maximum: WALL_SIZE - 1 },
+          y1: { type: 'integer', minimum: 0, maximum: WALL_SIZE - 1 },
         },
       },
     },
@@ -215,7 +215,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
 
   // Every frame on sale is 1x1. `size` is still accepted, but only as 1.
   const sizeSchema = { type: 'integer', enum: [FRAME_SIZE] }
-  const cellSchema = { type: 'integer', minimum: 0, maximum: 999 }
+  const cellSchema = { type: 'integer', minimum: 0, maximum: WALL_SIZE - 1 }
 
   app.get<{ Querystring: { x: number; y: number } }>('/price', {
     schema: {
@@ -338,7 +338,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     const expiresAt = new Date(Date.now() + config.reservationMinutes * 60_000)
     const checkout = await payments.createCheckout({
       frameId: id, priceCents: price, expiresAt,
-      description: `remember.me — frame at (${b.x}, ${b.y})`,
+      description: `The Living Wall — frame at (${b.x}, ${b.y})`,
     })
     return reply.code(201).send({
       id: Number(id), priceCents: price, priceUsd: price / 100, zone, expiresAt, checkoutUrl: checkout.url,
