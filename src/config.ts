@@ -21,8 +21,6 @@ export interface Config {
   publicUrl: string
   /** Where the website lives, without a trailing slash: checkout returns there. */
   frontendUrl: string
-  /** Fill an empty wall with demo frames on start (dev environments only). */
-  seedDemo: boolean
   /** Site name printed on story cards. Empty: taken from frontendUrl. */
   storySiteLabel: string
 }
@@ -43,7 +41,6 @@ export function loadConfig(): Config {
     // Render sets RENDER_EXTERNAL_URL for every web service.
     publicUrl: trimSlash(process.env.API_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`),
     frontendUrl: trimSlash(process.env.FRONTEND_URL || 'http://localhost:3000'),
-    seedDemo: process.env.SEED_DEMO === '1',
     storySiteLabel: process.env.STORY_SITE_LABEL ?? '',
   }
 }

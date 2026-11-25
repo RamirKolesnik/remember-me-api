@@ -10,8 +10,7 @@ import { sandboxRoutes } from './routes/sandbox.ts'
 import type { Stories } from './stories.ts'
 import { parsePhotoDataUrl } from './domain/photo.ts'
 import {
-  containsLink, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfFrame,
-  type FrameSize,
+  containsLink, FRAME_SIZE, NAME_MAX, NOTE_MAX, placementError, priceOf, WALL_SIZE, zoneOfCell,
 } from './domain/wall.ts'
 
 export interface Deps {
@@ -169,22 +168,24 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return reply.type(story.mime).send(story.data)
   })
 
-  const sizeSchema = { type: 'integer', enum: [1, 2, 3] }
+  // Every frame on sale is 1x1. `size` is still accepted, but only as 1.
+  const sizeSchema = { type: 'integer', enum: [FRAME_SIZE] }
   const cellSchema = { type: 'integer', minimum: 0, maximum: 999 }
 
-  app.get<{ Querystring: { x: number; y: number; size: FrameSize } }>('/price', {
+  app.get<{ Querystring: { x: number; y: number } }>('/price', {
     schema: {
       querystring: {
         type: 'object',
-        required: ['x', 'y', 'size'],
+        required: ['x', 'y'],
         properties: { x: cellSchema, y: cellSchema, size: sizeSchema },
       },
     },
   }, async (req) => {
-    const { x, y, size } = req.query
-    const error = placementError(x, y, size)
+    const { x, y } = req.query
+    const error = placementError(x, y)
     if (error) return { error }
-    return { priceUsd: priceOf(x, y, size), zone: zoneOfFrame(x, y, size).id }
+    const cents = priceOf(x, y)
+    return { priceCents: cents, priceUsd: cents / 100, zone: zoneOfCell(x, y).id }
   })
 
   // Photos: a base64 data URL in JSON, at most ~400 KB of image. The website
@@ -220,7 +221,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   })
 
   interface ReserveBody {
-    x: number; y: number; size: FrameSize
+    x: number; y: number; size?: number
     name: string; note?: string; photoKey?: string; captchaToken?: string
   }
 
@@ -228,7 +229,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     schema: {
       body: {
         type: 'object',
-        required: ['x', 'y', 'size', 'name'],
+        required: ['x', 'y', 'name'],
         additionalProperties: false,
         properties: {
           x: cellSchema, y: cellSchema, size: sizeSchema,
@@ -243,7 +244,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     const b = req.body
     const name = b.name.trim()
     const note = (b.note ?? '').trim()
-    const placement = placementError(b.x, b.y, b.size)
+    const placement = placementError(b.x, b.y)
     if (placement) return reply.code(422).send({ error: placement })
     if (!name) return reply.code(422).send({ error: 'name_required' })
     if (containsLink(name) || containsLink(note)) return reply.code(422).send({ error: 'links_not_allowed' })
@@ -255,14 +256,14 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (!payments.configured) return reply.code(503).send({ error: 'payments_unavailable' })
 
     // The heart is never sold here: placementError refuses any spot on it.
-    const zone = zoneOfFrame(b.x, b.y, b.size).id
-    const price = priceOf(b.x, b.y, b.size)
+    const zone = zoneOfCell(b.x, b.y).id
+    const price = priceOf(b.x, b.y) // cents
 
     let id: string
     try {
       const { rows } = await db.query<{ id: string }>(
         'select reserve_frame($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) as id',
-        [b.x, b.y, b.size, zone, price, name, note, b.photoKey ?? null, req.ip, config.reservationMinutes],
+        [b.x, b.y, FRAME_SIZE, zone, price, name, note, b.photoKey ?? null, req.ip, config.reservationMinutes],
       )
       id = rows[0]!.id
     } catch (err) {
@@ -283,10 +284,12 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
 
     const expiresAt = new Date(Date.now() + config.reservationMinutes * 60_000)
     const checkout = await payments.createCheckout({
-      frameId: id, priceUsd: price, expiresAt,
-      description: `remember.me — ${b.size}×${b.size} frame at (${b.x}, ${b.y})`,
+      frameId: id, priceCents: price, expiresAt,
+      description: `remember.me — frame at (${b.x}, ${b.y})`,
     })
-    return reply.code(201).send({ id: Number(id), priceUsd: price, zone, expiresAt, checkoutUrl: checkout.url })
+    return reply.code(201).send({
+      id: Number(id), priceCents: price, priceUsd: price / 100, zone, expiresAt, checkoutUrl: checkout.url,
+    })
   })
 
   // Webhooks need the raw body to check the provider's signature.

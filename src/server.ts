@@ -5,17 +5,12 @@ import { createCaptcha } from './adapters/captcha.ts'
 import { createPayments } from './adapters/payments.ts'
 import { createModerator } from './adapters/moderation.ts'
 import { migrate } from './db/migrate.ts'
-import { seedDemoIfEmpty } from './db/seed.ts'
 import { createStories, siteLabelOf } from './stories.ts'
 
 const config = loadConfig()
 await migrate(config.databaseUrl)
 
 const db = new pg.Pool({ connectionString: config.databaseUrl, max: 10 })
-if (config.seedDemo) {
-  const added = await seedDemoIfEmpty(db)
-  if (added) console.log(`Seeded ${added} demo frames`)
-}
 
 const log = {
   info: (obj: object, msg: string) => console.log(msg, JSON.stringify(obj)),

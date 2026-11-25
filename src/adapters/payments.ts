@@ -1,6 +1,7 @@
 export interface CheckoutRequest {
   frameId: string
-  priceUsd: number
+  /** In US cents. */
+  priceCents: number
   description: string
   /** The provider's checkout must expire with the hold. */
   expiresAt: Date
