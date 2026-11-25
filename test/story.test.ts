@@ -7,15 +7,15 @@ import { siteLabelOf } from '../src/stories.ts'
 const base = { id: 7, number: 4812, x: 512, y: 488, size: 2, zone: 1, name: 'Aziza K.', photo: null, siteLabel: 'remember.me' }
 
 test('caption carries the frame number', () => {
-  assert.equal(storyCaption(base), "I'm #4,812 on the wall.\nForever.")
+  assert.equal(storyCaption(base), "I'm heartbeat #4,812.\nForever.")
   assert.equal(storyCaption({ number: null, zone: 2 }), "I'm on the wall.\nForever.")
   assert.equal(storyCaption({ number: 1, zone: 0 }), 'I own the heart of the wall.\nForever.')
 })
 
 test('meta line names the cell and zone', () => {
-  assert.equal(storyMeta(base), 'Cell (512, 488) · Epic zone')
-  assert.equal(storyMeta({ x: 498, y: 498, size: 4, zone: 0, number: 1 }), 'The center of the wall · 4×4 · one of one')
-  assert.equal(storyMeta({ ...base, number: 42 }), 'Founder · Cell (512, 488) · Epic zone')
+  assert.equal(storyMeta(base), 'Cell (512, 488) · Chambers')
+  assert.equal(storyMeta({ x: 495, y: 495, size: 12, zone: 0, number: 1 }), 'The center of the wall · 12×12 · one of one')
+  assert.equal(storyMeta({ ...base, number: 42 }), 'Founder · Cell (512, 488) · Chambers')
 })
 
 test('initials', () => {
@@ -31,7 +31,7 @@ test('site label drops the scheme and trailing slash', () => {
 
 test('renders a 1080×1920 JPEG, with and without a photo', async () => {
   const photo = await sharp({ create: { width: 512, height: 512, channels: 3, background: '#7a9' } }).jpeg().toBuffer()
-  for (const f of [base, { ...base, photo }, { ...base, zone: 0, x: 498, y: 498, size: 4 }]) {
+  for (const f of [base, { ...base, photo }, { ...base, zone: 0, x: 495, y: 495, size: 12 }]) {
     const img = await renderStory(f)
     const meta = await sharp(img).metadata()
     assert.equal(meta.format, 'jpeg')
@@ -41,11 +41,12 @@ test('renders a 1080×1920 JPEG, with and without a photo', async () => {
 })
 
 test('the heart has its own template', async () => {
-  const mean = async (buf: Buffer) => (await sharp(buf).stats()).channels[1]!.mean
-  const plain = await mean(await renderStory(base))
-  const heart = await mean(await renderStory({ ...base, zone: 0, x: 498, y: 498, size: 4 }))
-  assert.ok(plain > 180, `light card, mean green ${plain}`)
-  assert.ok(heart < 80, `dark card, mean green ${heart}`)
+  const means = async (buf: Buffer) => (await sharp(buf).stats()).channels.map((c) => c.mean)
+  const [plainRed, plainGreen] = await means(await renderStory(base))
+  const [heartRed] = await means(await renderStory({ ...base, zone: 0, x: 495, y: 495, size: 12 }))
+  // Both cards are the dark living wall; the heart's glows red.
+  assert.ok(plainGreen! < 80, `dark card, mean green ${plainGreen}`)
+  assert.ok(heartRed! > plainRed! + 3, `the heart glows red: ${heartRed} vs ${plainRed}`)
 })
 
 test('a broken photo falls back to initials, and long names still fit', async () => {

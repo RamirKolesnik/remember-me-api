@@ -69,17 +69,17 @@ test('one live hold per client', { skip }, () => {
 
 test('no hold can touch the heart', { skip }, () => {
   assert.match(sqlError(reserve(500, 500, 'c')), /frames_off_heart/)
-  assert.match(sqlError(reserve(498, 501, 'c')), /frames_off_heart/)
-  assert.match(sql(reserve(497, 497, 'c')), /^\d+$/)
+  assert.match(sqlError(reserve(495, 506, 'c')), /frames_off_heart/)
+  assert.match(sql(reserve(494, 494, 'c')), /^\d+$/)
 })
 
 test('the heart is placed once, by hand', { skip }, () => {
   assert.match(sql(`select place_heart('Owner', 'hi', null, 12000, 'deal-1')`), /^\d+$/)
-  assert.equal(sql(`select count(*) from cells c join frames f on f.id = c.frame_id where f.zone = 0`), '16')
+  assert.equal(sql(`select count(*) from cells c join frames f on f.id = c.frame_id where f.zone = 0`), '144')
   assert.equal(sql(`select number is not null from frames where zone = 0`), 't')
   assert.equal(sql(`select price_cents from frames where zone = 0`), '1200000', 'dollars in, cents stored')
   assert.match(sqlError(`select place_heart('Other', '', null, 10000, 'deal-2')`), /heart_sold/)
-  // Zone 0 is only ever the 4x4 heart.
+  // Zone 0 is only ever the 12x12 heart.
   assert.match(sqlError(`insert into frames (x, y, size, zone, price_cents, name, status) values (10, 10, 1, 0, 1, 'x', 'active')`), /frames_heart/)
 })
 

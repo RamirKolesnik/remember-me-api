@@ -20,7 +20,8 @@ const PALETTE: readonly [string, string][] = [
   ['#C0DD97', '#27500A'], ['#D3D1C7', '#444441'],
 ]
 
-const ZONE_LABEL: Record<number, string> = { 1: 'Epic zone', 2: 'Rare zone', 3: 'Uncommon zone', 4: 'Common zone' }
+// The rings of the living wall, from the heart out.
+const ZONE_LABEL: Record<number, string> = { 1: 'Chambers', 2: 'Arteries', 3: 'Veins', 4: 'Capillaries' }
 
 export interface StoryFrame {
   id: number
@@ -42,10 +43,10 @@ const escXml = (s: string) =>
 export const initialsOf = (name: string) =>
   name.trim().split(/\s+/).map((w) => [...w][0] ?? '').join('').slice(0, 2).toUpperCase() || '?'
 
-/** "I'm #4,812 on the wall.\nForever." */
+/** "I'm heartbeat #4,812.\nForever." */
 export function storyCaption(f: Pick<StoryFrame, 'number' | 'zone'>): string {
   if (f.zone === 0) return 'I own the heart of the wall.\nForever.'
-  if (f.number) return `I'm #${f.number.toLocaleString('en-US')} on the wall.\nForever.`
+  if (f.number) return `I'm heartbeat #${f.number.toLocaleString('en-US')}.\nForever.`
   return "I'm on the wall.\nForever."
 }
 
@@ -130,13 +131,15 @@ interface Theme {
   glow: string | null
 }
 
+// The Living Wall: a dark body with red blood in the seams. The heart's own
+// card glows red around the owner's photo.
 const LIGHT: Theme = {
-  ground: '#F6F5F1', grid: '#E9E7DF', ink: '#18171C', muted: '#5F5E5A', accent: '#534AB7',
-  pillFill: '#FFFFFF', pillLine: '#E4E2DA', frameFill: '#FFFFFF', glow: null,
+  ground: '#0B0709', grid: '#2A1218', ink: '#F6ECEE', muted: '#A3919A', accent: '#FF5C77',
+  pillFill: '#1A1014', pillLine: '#3A2229', frameFill: '#FFFFFF', glow: null,
 }
 const HEART: Theme = {
-  ground: '#18171C', grid: '#232228', ink: '#FFFFFF', muted: '#B4B2A9', accent: '#F0997B',
-  pillFill: '#24232A', pillLine: '#3A3940', frameFill: '#D85A30', glow: '#D85A30',
+  ground: '#0B0709', grid: '#3A121C', ink: '#FFFFFF', muted: '#C9AFB7', accent: '#FF8FA2',
+  pillFill: '#22121A', pillLine: '#5A1F2C', frameFill: '#FF3B52', glow: '#FF3B52',
 }
 
 /** Renders the story card. Pure: same input, same picture. */
@@ -149,8 +152,8 @@ export async function renderStory(f: StoryFrame): Promise<Buffer> {
   // Instagram covers ~250 px at the top and bottom with its own UI: everything
   // that matters sits between y = 230 and y = 1680.
   const [brand, kicker, name, caption, meta, site] = await Promise.all([
-    text('remember.me', { font: 'semibold', px: 46, color: t.ink, width: 900, letterSpacing: -0.5 }),
-    text(heart ? 'THE HEART OF THE WALL' : 'A WALL THAT REMEMBERS', { font: 'semibold', px: 28, color: t.accent, width: 900, letterSpacing: 4 }),
+    text('The Living Wall', { font: 'semibold', px: 46, color: t.ink, width: 900, letterSpacing: -0.5 }),
+    text(heart ? 'THE HEART OF THE WALL' : 'EVERY FACE IS A HEARTBEAT', { font: 'semibold', px: 28, color: t.accent, width: 900, letterSpacing: 4 }),
     fittedText(f.name, { font: 'semibold', px: 92, min: 56, maxLines: 2, color: t.ink, width: 920, letterSpacing: -1 }),
     text(storyCaption(f), { font: 'regular', px: 56, color: t.ink, width: 960 }),
     text(storyMeta(f), { font: 'regular', px: 32, color: t.muted, width: 900 }),

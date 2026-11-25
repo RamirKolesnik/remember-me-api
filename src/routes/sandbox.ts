@@ -20,7 +20,7 @@ interface HoldRow {
 function page(body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test checkout — remember.me</title>
+<title>Test checkout — The Living Wall</title>
 <style>
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F6F5F1;font:16px/1.5 Inter,system-ui,sans-serif;color:#18171C}
 main{width:min(420px,100% - 32px);background:#fff;border:1px solid #E4E2DA;border-radius:14px;padding:28px;display:flex;flex-direction:column;gap:18px}
@@ -53,7 +53,7 @@ export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; f
     const minutes = f.expires_at ? Math.max(0, Math.round((f.expires_at.getTime() - Date.now()) / 60000)) : 0
     return page(`
 <span class="tag">TEST PAYMENT — no money moves</span>
-<h1>remember.me</h1>
+<h1>The Living Wall</h1>
 <div class="price">${formatUsd(f.price_cents)}</div>
 <dl>
 <dt>Frame</dt><dd>Cell (${f.x}, ${f.y})</dd>
