@@ -40,8 +40,9 @@ jobs:
           node src/server.ts > server.log 2>&1 &
           echo $! > server.pid
           for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
-          curl -sf "localhost:8080/price?x=502&y=498&size=1" | grep -q '"priceUsd":15'
-          curl -sf "localhost:8080/price?x=500&y=500&size=1" | grep -q '"error":"heart_not_for_sale"'
+          curl -sf "localhost:8080/price?x=502&y=498" | grep -q '"priceCents":9900'
+          curl -sf "localhost:8080/price?x=10&y=10&size=1" | grep -q '"priceUsd":4.99'
+          curl -sf "localhost:8080/price?x=500&y=500" | grep -q '"error":"heart_not_for_sale"'
           curl -sf "localhost:8080/wall/stats" | grep -q '"cellsLeft":1000000'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"size":1,"name":"Ci"}')" = "503"
           kill "$(cat server.pid)"
@@ -51,7 +52,6 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/sandbox
           PORT: "8081"
           PAYMENT_PROVIDER: sandbox
-          SEED_DEMO: "1"
           API_PUBLIC_URL: http://localhost:8081
           FRONTEND_URL: https://example.test/site
         run: |
@@ -60,16 +60,18 @@ jobs:
           node src/server.ts > sandbox.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:8081/health && break; sleep 1; done
           before=$(curl -sf localhost:8081/wall/stats | node -pe 'JSON.parse(require("fs").readFileSync(0)).frames')
-          test "$before" -gt 1000
+          test "$before" -eq 0  # no demo frames: the wall starts empty
           # Upload a 1x1 PNG
           png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
           key=$(curl -sf -X POST localhost:8081/photos -H 'content-type: application/json' -d "{\"dataUrl\":\"$png\"}" | node -pe 'JSON.parse(require("fs").readFileSync(0)).photoKey')
           curl -sf "localhost:8081/photos/$key" -o /dev/null
           res=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' \
-            -d "{\"x\":10,\"y\":10,\"size\":2,\"name\":\"Ci Buyer\",\"note\":\"hi @ci\",\"photoKey\":\"$key\"}")
+            -d "{\"x\":10,\"y\":10,\"name\":\"Ci Buyer\",\"note\":\"hi @ci\",\"photoKey\":\"$key\"}")
           echo "$res"
           id=$(echo "$res" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
-          echo "$res" | grep -q '"priceUsd":6'
+          echo "$res" | grep -q '"priceCents":499'
+          # Only 1x1 frames are sold
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8081/reservations -H 'content-type: application/json' -d '{"x":40,"y":40,"size":2,"name":"Big"}')" = "400"
           # Same client, second hold: refused and pointed back to the first
           curl -s -X POST localhost:8081/reservations -H 'content-type: application/json' \
             -d '{"x":20,"y":20,"size":1,"name":"Again"}' | grep -q "sandbox/checkout/$id"
@@ -83,7 +85,7 @@ jobs:
           curl -sf "localhost:8081/frames/by-number/$num" | grep -q "\"id\":$id,"
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8081/frames/by-number/999999)" = "404"
           # The newest frame leads the "Just immortalized" feed
-          curl -sf "localhost:8081/wall/recent?limit=3" | node -e 'const b=JSON.parse(require("fs").readFileSync(0));if(b.frames.length!==3||b.frames[0].id!=='"$id"')process.exit(1)'
+          curl -sf "localhost:8081/wall/recent?limit=3" | node -e 'const b=JSON.parse(require("fs").readFileSync(0));if(b.frames.length!==1||b.frames[0].id!=='"$id"')process.exit(1)'
           test "$(curl -s -o /dev/null -w '%{http_code}' 'localhost:8081/wall/recent?limit=500')" = "400"
           curl -sf "localhost:8081/frames/$id" | grep -q "\"storyUrl\":\"http://localhost:8081/frames/$id/story.jpg\""
           curl -sf "localhost:8081/frames/$id/story.jpg" -o story.jpg

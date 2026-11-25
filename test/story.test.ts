@@ -13,7 +13,7 @@ test('caption carries the frame number', () => {
 })
 
 test('meta line names the cell and zone', () => {
-  assert.equal(storyMeta(base), 'Cell (512, 488) · Zone 1 · center · 2×2')
+  assert.equal(storyMeta(base), 'Cell (512, 488) · Epic zone')
   assert.equal(storyMeta({ x: 498, y: 498, size: 4, zone: 0 }), 'The center of the wall · 4×4 · one of one')
 })
 

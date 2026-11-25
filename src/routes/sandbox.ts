@@ -1,6 +1,7 @@
 // Fake checkout for test environments (PAYMENT_PROVIDER=sandbox). No money moves.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
+import { formatUsd } from '../domain/wall.ts'
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -10,7 +11,7 @@ interface HoldRow {
   x: number
   y: number
   size: number
-  price_usd: number
+  price_cents: number
   name: string
   status: string
   expires_at: Date | null
@@ -41,7 +42,7 @@ export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; f
 
   app.get<{ Params: { id: number } }>('/sandbox/checkout/:id', { schema: idSchema }, async (req, reply) => {
     const { rows } = await db.query<HoldRow>(
-      'select id, x, y, size, price_usd, name, status, expires_at from frames where id = $1', [req.params.id],
+      'select id, x, y, size, price_cents, name, status, expires_at from frames where id = $1', [req.params.id],
     )
     const f = rows[0]
     reply.type('text/html; charset=utf-8')
@@ -53,13 +54,13 @@ export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; f
     return page(`
 <span class="tag">TEST PAYMENT — no money moves</span>
 <h1>remember.me</h1>
-<div class="price">$${f.price_usd.toLocaleString('en-US')}</div>
+<div class="price">${formatUsd(f.price_cents)}</div>
 <dl>
-<dt>Frame</dt><dd>${f.size}×${f.size} at (${f.x}, ${f.y})</dd>
+<dt>Frame</dt><dd>Cell (${f.x}, ${f.y})</dd>
 <dt>Name</dt><dd>${esc(f.name)}</dd>
 <dt>Hold ends</dt><dd>in ~${minutes} min</dd>
 </dl>
-<form method="post" action="/sandbox/checkout/${f.id}/pay"><button class="pay" type="submit">Pay $${f.price_usd.toLocaleString('en-US')} (test)</button></form>
+<form method="post" action="/sandbox/checkout/${f.id}/pay"><button class="pay" type="submit">Pay ${formatUsd(f.price_cents)} (test)</button></form>
 <form method="post" action="/sandbox/checkout/${f.id}/cancel"><button class="cancel" type="submit">Cancel and free the spot</button></form>
 <p class="muted">This page stands in for the real payment provider in the test environment.</p>`)
   })

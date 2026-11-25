@@ -19,7 +19,7 @@ const PALETTE: readonly [string, string][] = [
   ['#C0DD97', '#27500A'], ['#D3D1C7', '#444441'],
 ]
 
-const ZONE_LABEL: Record<number, string> = { 1: 'Zone 1 · center', 2: 'Zone 2', 3: 'Zone 3', 4: 'Zone 4 · edge' }
+const ZONE_LABEL: Record<number, string> = { 1: 'Epic zone', 2: 'Rare zone', 3: 'Uncommon zone', 4: 'Common zone' }
 
 export interface StoryFrame {
   id: number
@@ -50,7 +50,7 @@ export function storyCaption(f: Pick<StoryFrame, 'number' | 'zone'>): string {
 
 export function storyMeta(f: Pick<StoryFrame, 'x' | 'y' | 'size' | 'zone'>): string {
   if (f.zone === 0) return `The center of the wall · ${f.size}×${f.size} · one of one`
-  return `Cell (${f.x}, ${f.y}) · ${ZONE_LABEL[f.zone] ?? `Zone ${f.zone}`} · ${f.size}×${f.size}`
+  return `Cell (${f.x}, ${f.y}) · ${ZONE_LABEL[f.zone] ?? `Zone ${f.zone}`}`
 }
 
 interface TextOpts {
