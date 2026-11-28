@@ -69,7 +69,7 @@ jobs:
           png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
           key=$(curl -sf -X POST localhost:8081/photos -H 'content-type: application/json' -d "{\"dataUrl\":\"$png\"}" | node -pe 'JSON.parse(require("fs").readFileSync(0)).photoKey')
           curl -sf "localhost:8081/photos/$key" -o /dev/null
-          res=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' \
+          res=$(curl -sf -X POST localhost:8081/reservations -H 'content-type: application/json' -H 'cf-ipcountry: UZ' \
             -d "{\"x\":400,\"y\":400,\"name\":\"Ci Buyer\",\"note\":\"hi @ci\",\"photoKey\":\"$key\"}")
           echo "$res"
           id=$(echo "$res" | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
@@ -93,6 +93,9 @@ jobs:
           # The newest frame leads the "Just immortalized" feed
           curl -sf "localhost:8081/wall/recent?limit=3" | node -e 'const b=JSON.parse(require("fs").readFileSync(0));if(b.frames.length!==1||b.frames[0].id!=='"$id"')process.exit(1)'
           test "$(curl -s -o /dev/null -w '%{http_code}' 'localhost:8081/wall/recent?limit=500')" = "400"
+          # The buyer's country is kept and counted
+          curl -sf localhost:8081/wall/countries | grep -q '"countries":\[{"code":"UZ","count":1}\]'
+          curl -sf -X POST localhost:8081/sandbox/countries/fill | grep -q '"filled":0'
           curl -sf "localhost:8081/frames/$id" | grep -q "\"storyUrl\":\"http://localhost:8081/frames/$id/story.jpg\""
           curl -sf "localhost:8081/frames/$id/story.jpg" -o story.jpg
           test "$(head -c 3 story.jpg | od -An -tx1 | tr -d ' ')" = "ffd8ff"
