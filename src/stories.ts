@@ -5,6 +5,8 @@
 // lost when the server restarts. It moves to BullMQ with Redis before launch.
 import type pg from 'pg'
 import { renderStory, STORY_MIME } from './domain/story.ts'
+import { tagsOf } from './domain/wall.ts'
+import { wallNow } from './milestones.ts'
 
 export interface Stories {
   /** The card of an active frame, or null if there is no such frame. */
@@ -51,7 +53,11 @@ export function createStories(opts: { db: pg.Pool; siteLabel: string; log: Logge
     )
     const r = rows[0]
     if (!r) return null
+    // Fresh milestones, so the frame that was first in its zone or took the last spot gets its tag.
+    const { milestones } = await wallNow(db)
+    const tags = tagsOf({ number: r.number, x: r.x, y: r.y, size: r.size }, milestones)
     const data = await renderStory({
+      tags,
       id: Number(r.id), number: r.number, x: r.x, y: r.y, size: r.size, zone: r.zone, name: r.name,
       photo: r.photo, siteLabel,
     })
