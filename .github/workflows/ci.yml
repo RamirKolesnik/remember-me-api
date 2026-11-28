@@ -96,6 +96,9 @@ jobs:
           # The buyer's country is kept and counted
           curl -sf localhost:8081/wall/countries | grep -q '"countries":\[{"code":"UZ","count":1}\]'
           curl -sf -X POST localhost:8081/sandbox/countries/fill | grep -q '"filled":0'
+          curl -sf "localhost:8081/frames/$id" | grep -q '"country":"UZ"'
+          curl -sf localhost:8081/me/country -H 'cf-ipcountry: DE' | grep -q '"country":"DE"'
+          curl -sf localhost:8081/me/country | grep -q '"country":null'
           curl -sf "localhost:8081/frames/$id" | grep -q "\"storyUrl\":\"http://localhost:8081/frames/$id/story.jpg\""
           curl -sf "localhost:8081/frames/$id/story.jpg" -o story.jpg
           test "$(head -c 3 story.jpg | od -An -tx1 | tr -d ' ')" = "ffd8ff"

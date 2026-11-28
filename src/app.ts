@@ -36,10 +36,11 @@ interface FrameRow {
   name: string
   note: string
   photo_key: string | null
+  country: string | null
   paid_at: Date | null
 }
 
-const FRAME_COLUMNS = 'id, number, x, y, size, zone, name, note, photo_key, paid_at'
+const FRAME_COLUMNS = 'id, number, x, y, size, zone, name, note, photo_key, country, paid_at'
 const MAX_VIEW_CELLS = 250_000 // a 500x500 window at most per request
 const RECENT_MAX = 30
 const RECENT_TTL_MS = 3_000
@@ -55,6 +56,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     id: Number(r.id), number: r.number, x: r.x, y: r.y, size: r.size, zone: r.zone,
     name: r.name, note: r.note,
     photoUrl: r.photo_key ? `${config.publicUrl}/photos/${r.photo_key}` : null,
+    country: r.country,
     placedAt: r.paid_at,
   })
 
@@ -165,6 +167,13 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     }
     reply.header('cache-control', 'public, max-age=30')
     return countriesCache.body
+  })
+
+  // The visitor's own country, so the site can offer "Your country" in the
+  // country search. Worked out per request; nothing is stored.
+  app.get('/me/country', async (req, reply) => {
+    reply.header('cache-control', 'private, max-age=3600')
+    return { country: await countryOf(req.headers, req.ip) }
   })
 
   // Where prices and waves stand. The site works the rest out with the same
