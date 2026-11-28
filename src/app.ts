@@ -8,6 +8,7 @@ import type { PaymentProvider } from './adapters/payments.ts'
 import type { Moderator } from './adapters/moderation.ts'
 import { sandboxRoutes } from './routes/sandbox.ts'
 import type { Stories } from './stories.ts'
+import { wallNow, type WallNow } from './milestones.ts'
 import { parsePhotoDataUrl } from './domain/photo.ts'
 import {
   containsLink, FRAME_SIZE, NAME_MAX, NOTE_MAX, NOTHING_SOLD, placementError, pricing, WALL_SIZE, zoneOfCell,
@@ -67,16 +68,16 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     for (const r of rows) sold[r.zone as ZoneId] = Number(r.n)
     return sold
   }
-  // Every open wall polls prices: share one answer for a few seconds.
-  let soldCache: { at: number; sold: Promise<Sold> } | null = null
-  function soldShared(): Promise<Sold> {
+  // Every open wall polls prices: share one answer (sales and milestones) for a few seconds.
+  let wallCache: { at: number; wall: Promise<WallNow> } | null = null
+  function wallShared(): Promise<WallNow> {
     const now = Date.now()
-    if (!soldCache || now - soldCache.at > PRICING_TTL_MS) {
-      const sold = soldNow()
-      soldCache = { at: now, sold }
-      sold.catch(() => { soldCache = null })
+    if (!wallCache || now - wallCache.at > PRICING_TTL_MS) {
+      const wall = wallNow(db)
+      wallCache = { at: now, wall }
+      wall.catch(() => { wallCache = null })
     }
-    return soldCache.sold
+    return wallCache.wall
   }
 
   app.get('/health', async () => {
@@ -151,7 +152,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   // rules (wall.ts): current price, next price, frames left at this price,
   // which waves are open and how close the next one is.
   app.get('/wall/pricing', async (_req, reply) => {
-    const sold = await soldShared()
+    const { sold, milestones } = await wallShared()
     const p = pricing(sold)
     reply.header('cache-control', 'public, max-age=5')
     return {
@@ -162,6 +163,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       })),
       waves: p.waves,
       foundersLeft: p.foundersLeft,
+      // For the tags: first wave, first in zone, last spot (see tagsOf in wall.ts).
+      milestones,
     }
   })
 
@@ -229,7 +232,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     const { x, y } = req.query
     const error = placementError(x, y)
     if (error) return { error }
-    const z = zonePrice(pricing(await soldShared()), zoneOfCell(x, y).id)
+    const z = zonePrice(pricing((await wallShared()).sold), zoneOfCell(x, y).id)
     if (!z.open) return { error: 'zone_closed', wave: z.zone.wave }
     return {
       priceCents: z.priceCents, priceUsd: z.priceCents / 100, zone: z.zone.id,

@@ -6,6 +6,8 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { wallNow, type Queryable } from '../src/milestones.ts'
+import { HEART, milestonesOf, WAVE_UNLOCK_SHARE, ZONES } from '../src/domain/wall.ts'
 
 const admin = process.env.TEST_DATABASE_URL
 const skip = admin ? false : 'TEST_DATABASE_URL is not set'
@@ -14,7 +16,7 @@ let url = ''
 
 function psql(target: string, args: string[]): string {
   return execFileSync('psql', [target, '-tAX', '-v', 'ON_ERROR_STOP=1', ...args], {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024,
   }).trim()
 }
 const sql = (q: string) => psql(url, ['-c', q])
@@ -147,4 +149,49 @@ test('a story card goes away with its frame', { skip }, () => {
   sql(`insert into frame_stories (frame_id, mime, data) values (${id}, 'image/jpeg', '\\xffd8ff')`)
   sql(`delete from frames where id = ${id}`)
   assert.equal(sql(`select count(*) from frame_stories where frame_id = ${id}`), '0')
+})
+
+// wallNow() through psql: parameters inlined, rows as JSON.
+const viaPsql: Queryable = {
+  async query<R>(text: string, values: unknown[] = []) {
+    const lit = (v: unknown): string => Array.isArray(v) ? `array[${v.map(lit).join(',')}]` : String(Number(v))
+    const q = text.replace(/\$(\d+)/g, (_, i: string) => lit(values[Number(i) - 1]))
+    return { rows: JSON.parse(sql(`select coalesce(json_agg(t), '[]') from (${q}) t`)) as R[] }
+  },
+}
+
+test('milestones from SQL match the rules in wall.ts', { skip }, async () => {
+  const z1 = ZONES[0]!, z2 = ZONES[1]!
+  const unlockAt = Math.ceil((z1.capacity + z2.capacity) * WAVE_UNLOCK_SHARE)
+  // Earlier tests hold frames with made-up zones: start from an empty wall.
+  sql('truncate frames cascade')
+  const before = await wallNow(viaPsql)
+  assert.equal(before.milestones.zones[1].last, null)
+  assert.equal(before.milestones.firstWaveLast, null)
+
+  // Sell the Chambers out, then the Arteries up to just past the opening of wave 2.
+  const fill = (zone: number, lo: number, hi: number, inner: { min: number; max: number } | null, limit: number) => sql(
+    `insert into frames (x, y, size, zone, price_cents, name, status, paid_at)
+     select x, y, 1, ${zone}, 100, 'Bulk', 'active', now()
+     from generate_series(${lo}, ${hi}) gx(x), generate_series(${lo}, ${hi}) gy(y)
+     where not (x between ${HEART.x} and ${HEART.x + HEART.size - 1} and y between ${HEART.y} and ${HEART.y + HEART.size - 1})
+       ${inner ? `and not (x between ${inner.min} and ${inner.max} and y between ${inner.min} and ${inner.max})` : ''}
+            order by x, y limit ${limit}`,
+  )
+  fill(1, z1.min, z1.max, null, z1.capacity)
+  fill(2, z2.min, z2.max, z1, unlockAt - z1.capacity + 5)
+  fill(3, 210, 215, null, 3)
+  // A hidden frame still counts.
+  sql(`update frames set status = 'hidden' where id = (select max(id) from frames where zone = 2)`)
+
+  const now = await wallNow(viaPsql)
+  const rows = JSON.parse(sql(
+    `select coalesce(json_agg(json_build_object('number', number, 'x', x, 'y', y, 'size', size)), '[]')
+     from frames where status in ('active', 'hidden')`,
+  )) as { number: number; x: number; y: number; size: number }[]
+  assert.deepEqual(now.milestones, milestonesOf(rows))
+  assert.equal(now.sold[1], z1.capacity)
+  assert.ok(now.milestones.zones[1].last !== null, 'the Chambers are sold out')
+  assert.ok(now.milestones.firstWaveLast !== null, 'wave 2 is open')
+  assert.equal(now.milestones.zones[3].first, Number(sql(`select min(number) from frames where zone = 3 and status in ('active', 'hidden')`)))
 })

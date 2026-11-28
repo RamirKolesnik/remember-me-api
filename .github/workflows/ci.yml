@@ -45,6 +45,7 @@ jobs:
           # Only the center (wave 1) is open at launch
           curl -sf "localhost:8080/price?x=10&y=10" | grep -q '"error":"zone_closed"'
           curl -sf "localhost:8080/wall/pricing" | grep -q '"foundersLeft":1000'
+          curl -sf "localhost:8080/wall/pricing" | grep -q '"milestones":{"firstWaveLast":null'
           curl -sf "localhost:8080/price?x=500&y=500" | grep -q '"error":"heart_not_for_sale"'
           curl -sf "localhost:8080/wall/stats" | grep -q '"cellsLeft":1004004'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/reservations -H 'content-type: application/json' -d '{"x":10,"y":10,"size":1,"name":"Ci"}')" = "503"
@@ -97,6 +98,8 @@ jobs:
           test "$(head -c 3 story.jpg | od -An -tx1 | tr -d ' ')" = "ffd8ff"
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8081/frames/999999/story.jpg)" = "404"
           curl -sf localhost:8081/wall/pricing | grep -q '"foundersLeft":999'
+          # The first frame on the wall is the first in its zone.
+          curl -sf localhost:8081/wall/pricing | grep -q "\"first\":$num"
           after=$(curl -sf localhost:8081/wall/stats | node -pe 'JSON.parse(require("fs").readFileSync(0)).frames')
           test "$after" -eq $((before + 1))
           # Cancel frees the spot
