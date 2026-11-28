@@ -26,6 +26,8 @@ test('private and bad IPs have no country', async () => {
   assert.equal(await countryOf({}, '127.0.0.1'), null)
   assert.equal(await countryOf({}, '10.0.0.1'), null)
   assert.equal(await countryOf({}, 'nope'), null)
+  assert.equal(await countryOf({}, '::ffff:192.168.1.5'), null)
+  assert.equal(await countryOf({}, '::1'), null)
 })
 
 test('a public IP is found in the offline data', { skip: process.env.CI ? false : 'GeoIP data is checked in CI' }, async () => {
