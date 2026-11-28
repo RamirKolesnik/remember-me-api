@@ -10,6 +10,8 @@ import { sandboxRoutes } from './routes/sandbox.ts'
 import type { Stories } from './stories.ts'
 import { wallNow, type WallNow } from './milestones.ts'
 import { parsePhotoDataUrl } from './domain/photo.ts'
+import { rankCountries } from './domain/country.ts'
+import { countryOf } from './geo.ts'
 import {
   containsLink, FRAME_SIZE, NAME_MAX, NOTE_MAX, NOTHING_SOLD, placementError, pricing, WALL_SIZE, zoneOfCell,
   zonePrice, type Sold, type ZoneId,
@@ -42,6 +44,7 @@ const MAX_VIEW_CELLS = 250_000 // a 500x500 window at most per request
 const RECENT_MAX = 30
 const RECENT_TTL_MS = 3_000
 const PRICING_TTL_MS = 3_000
+const COUNTRIES_TTL_MS = 30_000
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   const { config, db, captcha, payments, moderator, stories } = deps
@@ -146,6 +149,22 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     }
     reply.header('cache-control', 'public, max-age=5')
     return hit.body
+  })
+
+  // Where buyers come from: live frames per country, most first. Countries
+  // change slowly, so one answer is shared for half a minute.
+  let countriesCache: { at: number; body: Promise<ReturnType<typeof rankCountries>> } | null = null
+  app.get('/wall/countries', async (_req, reply) => {
+    const now = Date.now()
+    if (!countriesCache || now - countriesCache.at > COUNTRIES_TTL_MS) {
+      const body = db.query<{ country: string | null; n: string }>(
+        `select country, count(*) as n from frames where status = 'active' group by country`,
+      ).then(({ rows }) => rankCountries(rows.map((r) => ({ country: r.country, n: Number(r.n) }))))
+      countriesCache = { at: now, body }
+      body.catch(() => { countriesCache = null })
+    }
+    reply.header('cache-control', 'public, max-age=30')
+    return countriesCache.body
   })
 
   // Where prices and waves stand. The site works the rest out with the same
@@ -337,6 +356,9 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       }
       throw err
     }
+    // Only the country is kept. A failed lookup leaves it unknown.
+    const country = await countryOf(req.headers, req.ip)
+    if (country) await db.query('update frames set country = $1 where id = $2', [country, id])
 
     const expiresAt = new Date(Date.now() + config.reservationMinutes * 60_000)
     const checkout = await payments.createCheckout({

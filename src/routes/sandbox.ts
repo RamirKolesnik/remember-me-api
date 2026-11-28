@@ -77,4 +77,23 @@ export async function sandboxRoutes(app: FastifyInstance, opts: { db: pg.Pool; f
     await db.query('select release_hold($1)', [req.params.id])
     return reply.redirect(`${frontendUrl}/immortalize/spot?cancelled=1`, 303)
   })
+
+  // Test walls only: gives live frames with no country a random one, weighted
+  // like a plausible global audience, so the country stats have something to show.
+  app.post('/sandbox/countries/fill', async () => {
+    const { rowCount } = await db.query(
+      `with pool(code, w) as (values
+         ('US', 22), ('IN', 9), ('BR', 7), ('GB', 6), ('DE', 5), ('ID', 4), ('MX', 4), ('FR', 4),
+         ('TR', 3), ('PH', 3), ('UZ', 3), ('CA', 3), ('JP', 3), ('KR', 2), ('ES', 2), ('IT', 2),
+         ('PL', 2), ('NG', 2), ('AR', 2), ('AU', 2), ('KZ', 2), ('UA', 2), ('VN', 1), ('EG', 1),
+         ('NL', 1), ('SE', 1), ('TH', 1), ('PK', 1), ('CO', 1), ('ZA', 1), ('SA', 1), ('AE', 1)),
+       cum as (select code, sum(w) over (order by code) - w as lo, sum(w) over (order by code) as hi,
+                      sum(w) over () as total from pool),
+       pick as (select f.id, (select c.code from cum c where c.lo <= r.v and r.v < c.hi) as code
+                from frames f cross join lateral (select random() * (select max(total) from cum) + 0 * f.id as v) r
+                where f.status = 'active' and f.country is null)
+       update frames f set country = pick.code from pick where pick.id = f.id`,
+    )
+    return { filled: rowCount ?? 0 }
+  })
 }
